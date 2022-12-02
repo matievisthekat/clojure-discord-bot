@@ -1,50 +1,51 @@
 (ns clojure-discord-bot.core
   (:require [clojure.edn :as edn]
             [clojure.core.async :refer [chan close!]]
-            [discljord.messaging :as discord-rest]
-            [discljord.connections :as discord-ws]
-            [discljord.formatting :refer [mention-user]]
-            [discljord.events :refer [message-pump!]]))
+            [clojure-discord-bot.commands :as commands]
+            [discljord.messaging :as rest]
+            [discljord.connections :as ws]
+            [discljord.formatting :as formatting]
+            [discljord.events :as events]))
 
 (def state (atom nil))
-
 (def bot-id (atom nil))
-
 (def config (edn/read-string (slurp "config.edn")))
+(def intents #{:guild-messages})
 
 (defmulti handle-event (fn [type _data] type))
-
-(defn random-response [user]
-  (str (rand-nth (:responses config)) ", " (mention-user user) \!))
 
 (defmethod handle-event :message-create
   [_ {:keys [channel-id author mentions] :as _data}]
   (when (some #{@bot-id} (map :id mentions))
-    (discord-rest/create-message! (:rest @state) channel-id :content (random-response author))))
+    #_{:clj-kondo/ignore [:unresolved-var]}
+    (rest/create-message! (:rest @state) channel-id :content (str "Hello " (formatting/mention-user author) ", use `/help` to view my commands")))
+  )
 
 (defmethod handle-event :ready
   [_ _]
-  (discord-ws/status-update! (:gateway @state) :activity (discord-ws/create-activity :name (:playing config))))
+  (ws/status-update! (:gateway @state) :activity (ws/create-activity :name (:playing config))))
 
 (defmethod handle-event :default [_ _])
 
 (defn start-bot! [token & intents]
   (let [event-channel (chan 100)
-        gateway-connection (discord-ws/connect-bot! token event-channel :intents (set intents))
-        rest-connection (discord-rest/start-connection! token)]
+        gateway-connection (ws/connect-bot! token event-channel :intents (set intents))
+        rest-connection (rest/start-connection! token)]
     {:events  event-channel
      :gateway gateway-connection
      :rest    rest-connection}))
 
 (defn stop-bot! [{:keys [rest gateway events] :as _state}]
-  (discord-rest/stop-connection! rest)
-  (discord-ws/disconnect-bot! gateway)
+  (rest/stop-connection! rest)
+  (ws/disconnect-bot! gateway)
   (close! events))
 
-(defn -main [& args]
-  (reset! state (start-bot! (:token config) :guild-messages))
-  (reset! bot-id (:id @(discord-rest/get-current-user! (:rest @state))))
+(defn -main [& _]
+  (reset! state (start-bot! (get config :token) intents))
+  @#_{:clj-kondo/ignore [:unresolved-var]}
+  (reset! bot-id (get (rest/get-current-user! (get @state :rest)) :id))
+  (commands/create-commands (get @state :rest) (get config :app-id))
   (try
-    (message-pump! (:events @state) handle-event)
+    (events/message-pump! (:events @state) handle-event)
     (finally (stop-bot! @state))))
 
