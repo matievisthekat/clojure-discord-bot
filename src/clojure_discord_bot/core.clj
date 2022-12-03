@@ -43,7 +43,7 @@
 (defn -main [& _]
   (start-bot! (get config :token) intents)
   (reset! bot-id (get (rest/get-current-user! (get @state :rest)) :id))
-  (commands/create-commands (get @state :rest) (get config :app-id))
+  ;; (commands/create-commands (get @state :rest) (get config :app-id))
   (try
     (events/message-pump! (:events @state) handle-event)
     (finally (stop-bot! @state))))
