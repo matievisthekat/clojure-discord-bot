@@ -23,26 +23,25 @@
 
 (defmethod handle-event :ready
   [_ _]
-  (ws/status-update! (:gateway @state) :activity (ws/create-activity :name (:playing config))))
+  (ws/status-update! (:ws @state) :activity (ws/create-activity :name (:playing config))))
 
 (defmethod handle-event :default [_ _])
 
 (defn start-bot! [token & intents]
   (let [event-channel (chan 100)
-        gateway-connection (ws/connect-bot! token event-channel :intents (set intents))
+        ws-connection (ws/connect-bot! token event-channel :intents (set intents))
         rest-connection (rest/start-connection! token)]
-    {:events  event-channel
-     :gateway gateway-connection
-     :rest    rest-connection}))
+    (reset! state {:events  event-channel
+                   :ws      ws-connection
+                   :rest    rest-connection})))
 
-(defn stop-bot! [{:keys [rest gateway events] :as _state}]
+(defn stop-bot! [{:keys [rest ws events] :as _state}]
   (rest/stop-connection! rest)
-  (ws/disconnect-bot! gateway)
+  (ws/disconnect-bot! ws)
   (close! events))
 
 (defn -main [& _]
-  (reset! state (start-bot! (get config :token) intents))
-  @#_{:clj-kondo/ignore [:unresolved-var]}
+  (start-bot! (get config :token) intents)
   (reset! bot-id (get (rest/get-current-user! (get @state :rest)) :id))
   (commands/create-commands (get @state :rest) (get config :app-id))
   (try
